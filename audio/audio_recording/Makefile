@@ -29,7 +29,7 @@ else ifneq ($(findstring MINGW,$(shell uname -a)),)
 	system_platform = win
 endif
 
-TARGET_NAME := testaudio_callback
+TARGET_NAME := testaudio_recording
 LIBM		= -lm
 
 ifeq ($(ARCHFLAGS),)

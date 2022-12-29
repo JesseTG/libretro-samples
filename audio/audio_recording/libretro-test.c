@@ -1,16 +1,66 @@
 #include <stdio.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <math.h>
 
 #include "libretro.h"
 
-static uint32_t *frame_buf;
+#define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))
+#define SCREEN_WIDTH 320
+#define SCREEN_HEIGHT 240
+#define SAMPLE_RATE 44100
+#define RECORDING_LENGTH 5
+#define FPS 60
+#define ERROR_DISPLAY_LENGTH (5 * FPS)
+
+enum state {
+   IDLE,
+   ERROR,
+   RECORDING,
+   PLAYBACK,
+   FINISHED_PLAYBACK,
+};
+
+static enum state state = IDLE;
+
+/**
+ * The pixels that we'll draw the visualization to.
+ */
+static uint32_t frame_buf[SCREEN_WIDTH * SCREEN_HEIGHT];
+
+/**
+ * The buffer that we'll use to store recorded audio.
+ */
+static int16_t recording_buffer[SAMPLE_RATE * RECORDING_LENGTH];
+
+/**
+ * The buffer that we'll use for audio output.
+ * Microphone input comes in mono,
+ * but audio output has to be in stereo.
+ */
+static int16_t playback_buffer[SAMPLE_RATE * RECORDING_LENGTH * 2];
+
+/**
+ * The number of audio frames that we've recorded.
+ */
+static size_t recording_offset;
+
+/**
+ * The number of audio frames that we've played back.
+ */
+static size_t playback_offset;
+
 static struct retro_log_callback logging;
 static retro_log_printf_t log_cb;
-static bool use_audio_cb;
+static struct retro_microphone_interface microphone_interface;
+static retro_microphone_t *microphone = NULL;
+static retro_video_refresh_t video_cb;
+static retro_audio_sample_t audio_cb;
+static retro_audio_sample_batch_t audio_batch_cb;
+static retro_environment_t environ_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_input_state_t input_state_cb;
 
 static void fallback_log(enum retro_log_level level, const char *fmt, ...)
 {
@@ -23,13 +73,32 @@ static void fallback_log(enum retro_log_level level, const char *fmt, ...)
 
 void retro_init(void)
 {
-   frame_buf = calloc(320 * 240, sizeof(uint32_t));
+   state = IDLE;
+   recording_offset = 0;
+   playback_offset = 0;
+   memset(frame_buf, 0, sizeof(frame_buf));
+   memset(recording_buffer, 0, sizeof(recording_buffer));
+   memset(playback_buffer, 0, sizeof(playback_buffer));
+
+   if (microphone_interface.init_microphone)
+      microphone = microphone_interface.init_microphone();
+
+   if (!microphone)
+   {
+      struct retro_message message;
+      message.msg = "Failed to get microphone (is one plugged in?)";
+      message.frames = ERROR_DISPLAY_LENGTH;
+      environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
+   }
 }
 
 void retro_deinit(void)
 {
-   free(frame_buf);
-   frame_buf = NULL;
+   if (microphone_interface.free_microphone)
+   {
+      microphone_interface.free_microphone(microphone);
+      microphone = NULL;
+   }
 }
 
 unsigned retro_api_version(void)
@@ -45,49 +114,48 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 void retro_get_system_info(struct retro_system_info *info)
 {
    memset(info, 0, sizeof(*info));
-   info->library_name     = "TestCore";
-   info->library_version  = "v1";
+   info->library_name     = "Audio Recording Sample Core";
+   info->library_version  = "1";
    info->need_fullpath    = false;
    info->valid_extensions = NULL; // Anything is fine, we don't care.
 }
 
-static retro_video_refresh_t video_cb;
-static retro_audio_sample_t audio_cb;
-static retro_audio_sample_batch_t audio_batch_cb;
-static retro_environment_t environ_cb;
-static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
-
 void retro_get_system_av_info(struct retro_system_av_info *info)
 {
-   float aspect = 4.0f / 3.0f;
-   float sampling_rate = 30000.0f;
+   float aspect = (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT;
 
    info->timing = (struct retro_system_timing) {
-      .fps = 60.0,
-      .sample_rate = sampling_rate,
+      .fps = FPS,
+      .sample_rate = SAMPLE_RATE,
    };
 
    info->geometry = (struct retro_game_geometry) {
-      .base_width   = 320,
-      .base_height  = 240,
-      .max_width    = 320,
-      .max_height   = 240,
+      .base_width   = SCREEN_WIDTH,
+      .base_height  = SCREEN_HEIGHT,
+      .max_width    = SCREEN_WIDTH,
+      .max_height   = SCREEN_HEIGHT,
       .aspect_ratio = aspect,
    };
 }
 
-void retro_set_environment(retro_environment_t cb)
-{
-   environ_cb = cb;
+void retro_set_environment(retro_environment_t cb) {
+    environ_cb = cb;
 
-   bool no_content = true;
-   cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_content);
+    bool no_content = true;
+    cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_content);
 
-   if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
-      log_cb = logging.log;
-   else
-      log_cb = fallback_log;
+    if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
+        log_cb = logging.log;
+    else
+        log_cb = fallback_log;
+
+    if (!cb(RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE, &microphone_interface))
+    {
+       struct retro_message message;
+       message.msg = "Failed to get microphone interface";
+       message.frames = ERROR_DISPLAY_LENGTH;
+       cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
+    }
 }
 
 void retro_set_audio_sample(retro_audio_sample_t cb)
@@ -115,79 +183,156 @@ void retro_set_video_refresh(retro_video_refresh_t cb)
    video_cb = cb;
 }
 
-static unsigned x_coord;
-static unsigned y_coord;
-static unsigned phase;
-static int mouse_rel_x;
-static int mouse_rel_y;
-
 void retro_reset(void)
 {
-   x_coord = 0;
-   y_coord = 0;
+   recording_offset = 0;
+   playback_offset = 0;
+   state = IDLE;
+   memset(frame_buf, 0, sizeof(frame_buf));
+   memset(recording_buffer, 0, sizeof(recording_buffer));
+   memset(playback_buffer, 0, sizeof(playback_buffer));
+
+   if (microphone && microphone_interface.free_microphone)
+      microphone_interface.free_microphone(microphone);
+
+   microphone = NULL;
 }
 
-static void update_input(void)
-{
-   input_poll_cb();
-   if (input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP)) {}
-}
+#define RED (0xff << 16)
+#define GREEN (0xff <<  8)
+#define BLUE (0xff)
+#define YELLOW (RED | GREEN)
 
-static void render_checkered(void)
+static void render(void)
 {
    uint32_t *buf = frame_buf;
-   unsigned stride = 320;
-   uint32_t color_r = 0xff << 16;
-   uint32_t color_g = 0xff <<  8;
+   memset(buf, 0, sizeof(uint32_t) * 320 * 240); /* Black background */
 
-   uint32_t *line = buf;
-   for (unsigned y = 0; y < 240; y++, line += stride)
+   double buffer_fraction = (double)recording_offset / (SAMPLE_RATE * RECORDING_LENGTH);
+
+   switch (state)
    {
-      unsigned index_y = ((y - y_coord) >> 4) & 1;
-      for (unsigned x = 0; x < 320; x++)
-      {
-         unsigned index_x = ((x - x_coord) >> 4) & 1;
-         line[x] = (index_y ^ index_x) ? color_r : color_g;
-      }
+      case ERROR:
+         memset(buf, RED, sizeof(uint32_t) * 320 * 240); /* Red background */
+         break;
+      case RECORDING:
+         {
+            double record_fraction = (double)recording_offset / (double)ARRAY_LENGTH(recording_buffer);
+            for (unsigned x = 0; x < SCREEN_WIDTH; x++)
+            {
+               double screen_fraction = (double)x / SCREEN_WIDTH;
+
+               if (screen_fraction <= record_fraction)
+               {
+                  buf[x + SCREEN_WIDTH * 160] = YELLOW;
+               }
+            }
+         }
+         break;
+      case PLAYBACK:
+         {
+            double record_fraction = (double)playback_offset / ((double)ARRAY_LENGTH(playback_buffer) / 2);
+            for (unsigned x = 0; x < SCREEN_WIDTH; x++)
+            {
+               double screen_fraction = (double)x / SCREEN_WIDTH;
+
+               if (screen_fraction <= record_fraction)
+               {
+                  buf[x + SCREEN_WIDTH * 160] = BLUE;
+               }
+            }
+         }
+         break;
+      default:
+         break;
    }
 
-   for (unsigned y = mouse_rel_y - 5; y <= mouse_rel_y + 5; y++)
-      for (unsigned x = mouse_rel_x - 5; x <= mouse_rel_x + 5; x++)
-         buf[y * stride + x] = 0xff;
-
-   video_cb(buf, 320, 240, stride << 2);
-}
-
-static void check_variables(void)
-{
-}
-
-static void audio_callback(void)
-{
-   for (unsigned i = 0; i < 30000 / 60; i++, phase++)
-   {
-      int16_t val = 0x800 * sinf(2.0f * M_PI * phase * 300.0f / 30000.0f);
-      audio_cb(val, val);
-   }
-
-   phase %= 100;
-}
-
-static void audio_set_state(bool enable)
-{
-   (void)enable;
+   video_cb(buf, 320, 240, SCREEN_WIDTH << 2);
 }
 
 void retro_run(void)
 {
-   update_input();
-   render_checkered();
-   if (!use_audio_cb)
-      audio_callback();
+   input_poll_cb();
 
-   bool updated = false;
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-      check_variables();
+   bool record_button = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
+
+   switch (state) {
+      case IDLE:
+         if (microphone && microphone_interface.set_microphone_state && record_button)
+         { // If we're not doing anything, and the microphone is valid, and the record button is pressed down...
+            recording_offset = 0;
+            playback_offset = 0;
+            memset(recording_buffer, 0, sizeof(recording_buffer));
+            memset(playback_buffer, 0, sizeof(playback_buffer));
+            if (microphone_interface.set_microphone_state(microphone, true))
+            { // If we successfully started the microphone...
+               state = RECORDING;
+            }
+            else
+            {
+               state = ERROR;
+            }
+         }
+         break;
+      case ERROR:
+         recording_offset = 0;
+         playback_offset = 0;
+         break;
+      case RECORDING:
+         {
+            int16_t* offset = recording_buffer + recording_offset;
+            size_t frames_left = (recording_buffer + ARRAY_LENGTH(recording_buffer) - offset);
+            int bytes_read = microphone_interface.get_microphone_input(microphone, offset, frames_left);
+            if (bytes_read < 0)
+            { // If there was a problem querying the mic...
+               microphone_interface.set_microphone_state(microphone, false);
+               state = ERROR;
+            }
+            else
+            { //
+               recording_offset += bytes_read;
+
+               if (!record_button || (recording_offset >= ARRAY_LENGTH(recording_buffer)))
+               { // If the mic button was released, or if we've filled the recording buffer...
+
+                  memset(playback_buffer, 0, sizeof(playback_buffer));
+                  for (int i = 0; i < recording_offset; ++i)
+                  {
+                     playback_buffer[i * 2] = recording_buffer[i];
+                     playback_buffer[i * 2 + 1] = recording_buffer[i];
+                  }
+                  playback_offset = 0;
+                  microphone_interface.set_microphone_state(microphone, false);
+                  // Shut off the mic, we won't use it during playback
+
+                  state = PLAYBACK;
+               }
+            }
+
+         }
+         break;
+      case PLAYBACK:
+         if (audio_batch_cb)
+         {
+            const int16_t* offset = playback_buffer + playback_offset;
+            size_t frames_left = playback_buffer + (recording_offset * 2) - offset;
+            size_t frames_played = audio_batch_cb(offset, frames_left);
+            playback_offset += frames_played;
+
+            if (playback_offset >= ARRAY_LENGTH(playback_buffer))
+            {
+               state = FINISHED_PLAYBACK;
+            }
+         }
+         break;
+      case FINISHED_PLAYBACK:
+         playback_offset = 0;
+         recording_offset = 0;
+         state = IDLE;
+         break;
+   }
+
+   render();
 }
 
 bool retro_load_game(const struct retro_game_info *info)
@@ -198,11 +343,6 @@ bool retro_load_game(const struct retro_game_info *info)
       log_cb(RETRO_LOG_INFO, "XRGB8888 is not supported.\n");
       return false;
    }
-
-   struct retro_audio_callback audio_cb = { audio_callback, audio_set_state };
-   use_audio_cb = environ_cb(RETRO_ENVIRONMENT_SET_AUDIO_CALLBACK, &audio_cb);
-
-   check_variables();
 
    (void)info;
    return true;
@@ -226,31 +366,28 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
    return retro_load_game(NULL);
 }
 
+// TODO: Implement
 size_t retro_serialize_size(void)
 {
-   return 2;
+   return
+         sizeof(frame_buf) +
+         sizeof(recording_buffer) +
+         sizeof(playback_buffer) +
+         sizeof(state) +
+      sizeof(recording_offset) +
+      sizeof(playback_offset);
 }
 
+// TODO: Implement
 bool retro_serialize(void *data_, size_t size)
 {
-   if (size < 2)
-      return false;
-
-   uint8_t *data = data_;
-   data[0] = x_coord;
-   data[1] = y_coord;
-   return true;
+   return false;
 }
 
+// TODO: Implement
 bool retro_unserialize(const void *data_, size_t size)
 {
-   if (size < 2)
-      return false;
-
-   const uint8_t *data = data_;
-   x_coord = data[0] & 31;
-   y_coord = data[1] & 31;
-   return true;
+   return false;
 }
 
 void *retro_get_memory_data(unsigned id)
