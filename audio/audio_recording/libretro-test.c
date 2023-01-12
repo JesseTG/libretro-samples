@@ -53,7 +53,7 @@ static size_t samples_recorded;
  */
 static size_t samples_played;
 
-static struct retro_log_callback logging;
+static struct retro_log_callback logging = {NULL};
 static retro_log_printf_t log_cb;
 static struct retro_microphone_interface microphone_interface;
 static retro_microphone_t *microphone = NULL;
