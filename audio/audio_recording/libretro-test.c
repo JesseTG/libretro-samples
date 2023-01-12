@@ -313,12 +313,13 @@ void retro_run(void)
          if (audio_batch_cb)
          {
             const int16_t* offset = playback_buffer + samples_played;
-            size_t frames_left = MIN(samples_recorded, ARRAY_LENGTH(playback_buffer)) - samples_played;
-            frames_left = MIN(frames_left, SAMPLES_PER_FRAME); // Submitting too much audio will cause the main thread to block while it plays
+            size_t frames_left = MIN(samples_recorded * 2, ARRAY_LENGTH(playback_buffer)) - samples_played;
+            frames_left = MIN(frames_left, SAMPLES_PER_FRAME * 2); // times 2 because we're converting mono input to stereo output
+            // Submitting too much audio will cause the main thread to block while it plays
             size_t frames_written = audio_batch_cb(offset, frames_left);
             samples_played += frames_written;
 
-            if (samples_played >= ARRAY_LENGTH(playback_buffer) || samples_played >= samples_recorded)
+            if (samples_played >= ARRAY_LENGTH(playback_buffer) || samples_played >= (samples_recorded * 2))
             {
                log_cb(RETRO_LOG_DEBUG, "Entering FINISHED_PLAYBACK state (finished playing audio data)\n");
                state = FINISHED_PLAYBACK;
