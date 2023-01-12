@@ -10,7 +10,8 @@
 #define SAMPLE_RATE 44100
 #define RECORDING_LENGTH 5
 #define FPS 60
-#define ERROR_DISPLAY_LENGTH (5 * FPS)
+#define SAMPLES_PER_FRAME (SAMPLE_RATE / FPS)
+#define MESSAGE_DISPLAY_LENGTH (5 * FPS)
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) > (b) ? (b) : (a))
@@ -144,7 +145,7 @@ void retro_set_environment(retro_environment_t cb) {
     {
        struct retro_message message;
        message.msg = "Failed to get microphone interface";
-       message.frames = ERROR_DISPLAY_LENGTH;
+       message.frames = MESSAGE_DISPLAY_LENGTH;
        cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
     }
 }
@@ -347,13 +348,16 @@ bool retro_load_game(const struct retro_game_info *info)
    if (microphone_interface.init_microphone)
       microphone = microphone_interface.init_microphone();
 
-   if (!microphone)
+   if (microphone)
    {
-      struct retro_message message;
-      message.msg = "Failed to get microphone (is one plugged in?)";
-      message.frames = ERROR_DISPLAY_LENGTH;
-      environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
+      message.msg = "Press and hold the START button to record, release to play back.";
    }
+   else
+   {
+      message.msg = "Failed to get microphone (is one plugged in?)";
+   }
+
+   environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &message);
 
    return true;
 }
