@@ -278,7 +278,7 @@ void retro_run(void)
          {
             int16_t* offset = recording_buffer + samples_recorded;
             ssize_t frames_left = MAX(0, ARRAY_LENGTH(recording_buffer) - samples_recorded);
-            int samples_read = microphone_interface.get_microphone_input(microphone, offset, frames_left);
+            int samples_read = microphone_interface.get_microphone_input(microphone, offset, MIN(frames_left, SAMPLES_PER_FRAME));
             if (samples_read < 0)
             { // If there was a problem querying the mic...
                log_cb(RETRO_LOG_DEBUG, "Entering ERROR state (error reading microphone)\n");
@@ -314,8 +314,9 @@ void retro_run(void)
          {
             const int16_t* offset = playback_buffer + samples_played;
             size_t frames_left = MIN(samples_recorded, ARRAY_LENGTH(playback_buffer)) - samples_played;
+            frames_left = MIN(frames_left, SAMPLES_PER_FRAME); // Submitting too much audio will cause the main thread to block while it plays
             size_t frames_written = audio_batch_cb(offset, frames_left);
-            samples_played += frames_written * 2; // times two because a frame is two samples
+            samples_played += frames_written;
 
             if (samples_played >= ARRAY_LENGTH(playback_buffer) || samples_played >= samples_recorded)
             {
