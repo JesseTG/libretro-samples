@@ -209,29 +209,21 @@ static void render(void)
       buf[x + SCREEN_WIDTH * 32] = WHITE;
    }
 
-   {
-      double recorded_ratio = (double)samples_recorded / (double)ARRAY_LENGTH(recording_buffer);
-      for (unsigned x = 0; x < SCREEN_WIDTH; x++)
-      {
-         double screen_fraction = (double)x / SCREEN_WIDTH;
+   double recorded_ratio = (double)samples_recorded / (double)ARRAY_LENGTH(recording_buffer);
+   double played_ratio = (double)samples_played / (double)ARRAY_LENGTH(playback_buffer);
 
-         if (screen_fraction <= recorded_ratio)
-         {
-            buf[x + SCREEN_WIDTH * 110] = YELLOW;
-         }
+   for (unsigned x = 0; x < SCREEN_WIDTH; x++)
+   {
+      double screen_fraction = (double)x / SCREEN_WIDTH;
+
+      if (screen_fraction <= recorded_ratio)
+      {
+         buf[x + SCREEN_WIDTH * 110] = YELLOW;
       }
-   }
 
-   {
-      double played_ratio = (double)samples_played / (double)ARRAY_LENGTH(playback_buffer);
-      for (unsigned x = 0; x < SCREEN_WIDTH; x++)
+      if (screen_fraction <= played_ratio)
       {
-         double screen_fraction = (double)x / SCREEN_WIDTH;
-
-         if (screen_fraction <= played_ratio)
-         {
-            buf[x + SCREEN_WIDTH * 130] = BLUE;
-         }
+         buf[x + SCREEN_WIDTH * 130] = BLUE;
       }
    }
 
