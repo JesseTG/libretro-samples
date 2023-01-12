@@ -246,10 +246,6 @@ void retro_run(void)
 
    switch (state) {
       case IDLE:
-         if (audio_batch_cb)
-         {
-            audio_batch_cb(SILENCE, 1);
-         }
          if (microphone && microphone_interface.set_microphone_state && record_button)
          { // If we're not doing anything, and the microphone is valid, and the record button is pressed down...
             samples_recorded = 0;
@@ -271,10 +267,6 @@ void retro_run(void)
       case ERROR:
          samples_recorded = 0;
          samples_played = 0;
-         if (audio_batch_cb)
-         {
-            audio_batch_cb(SILENCE, 1);
-         }
          break;
       case RECORDING:
          if (audio_batch_cb)
@@ -308,8 +300,6 @@ void retro_run(void)
                   state = PLAYBACK;
                }
             }
-            audio_batch_cb(SILENCE, 1);
-            /* Need to call this even if no audio is playing, as it flushes all buffers */
          }
          break;
       case PLAYBACK:
@@ -333,7 +323,6 @@ void retro_run(void)
          samples_played = 0;
          samples_recorded = 0;
          state = IDLE;
-         audio_batch_cb(SILENCE, 1);
          log_cb(RETRO_LOG_DEBUG, "Entering IDLE state (ready for more audio input)\n");
          break;
    }
