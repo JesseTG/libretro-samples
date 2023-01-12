@@ -338,6 +338,8 @@ void retro_run(void)
 
 bool retro_load_game(const struct retro_game_info *info)
 {
+   struct retro_message message;
+   message.frames = MESSAGE_DISPLAY_LENGTH;
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
    {
