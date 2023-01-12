@@ -204,11 +204,6 @@ static void render(void)
    uint32_t *buf = frame_buf;
    memset(buf, 0, sizeof(uint32_t) * 320 * 240); /* Black background */
 
-   for (unsigned x = 0; x < SCREEN_WIDTH; x++)
-   {
-      buf[x + SCREEN_WIDTH * 32] = WHITE;
-   }
-
    double recorded_ratio = (double)samples_recorded / (double)ARRAY_LENGTH(recording_buffer);
    double played_ratio = (double)samples_played / (double)ARRAY_LENGTH(playback_buffer);
 
