@@ -276,7 +276,6 @@ void retro_run(void)
          if (audio_batch_cb)
          {
             int16_t* offset = recording_buffer + samples_recorded;
-            log_cb(RETRO_LOG_DEBUG, "recording buffer: %u/%u frames\n", samples_recorded, ARRAY_LENGTH(recording_buffer));
             ssize_t frames_left = MAX(0, ARRAY_LENGTH(recording_buffer) - samples_recorded);
             int samples_read = microphone_interface.get_microphone_input(microphone, offset, frames_left);
             if (samples_read < 0)
@@ -313,7 +312,6 @@ void retro_run(void)
          if (audio_batch_cb)
          {
             const int16_t* offset = playback_buffer + samples_played;
-            log_cb(RETRO_LOG_DEBUG, "replaying buffer: %u/%u samples\n", samples_played, ARRAY_LENGTH(playback_buffer));
             size_t frames_left = MIN(samples_recorded, ARRAY_LENGTH(playback_buffer)) - samples_played;
             size_t frames_written = audio_batch_cb(offset, frames_left);
             samples_played += frames_written * 2; // times two because a frame is two samples
