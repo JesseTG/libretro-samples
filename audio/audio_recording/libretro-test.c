@@ -136,10 +136,13 @@ void retro_set_environment(retro_environment_t cb) {
     bool no_content = true;
     cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_content);
 
-    if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
-        log_cb = logging.log;
-    else
-        log_cb = fallback_log;
+    if (!log_cb)
+    {
+       if (cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
+          log_cb = logging.log;
+       else
+          log_cb = fallback_log;
+    }
 
     if (!cb(RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE, &microphone_interface))
     {
