@@ -199,11 +199,7 @@ void retro_reset(void)
 #define YELLOW (RED | GREEN)
 #define WHITE (RED | GREEN | BLUE)
 
-static void render(void)
-{
-   uint32_t *buf = frame_buf;
-   memset(buf, 0, sizeof(uint32_t) * 320 * 240); /* Black background */
-
+static void draw_lines_to_buffer(uint32_t *buf) {
    double recorded_ratio = (double)samples_recorded / (double)ARRAY_LENGTH(recording_buffer);
    double played_ratio = (double)samples_played / (double)ARRAY_LENGTH(playback_buffer);
 
@@ -221,8 +217,63 @@ static void render(void)
          buf[x + SCREEN_WIDTH * 130] = BLUE;
       }
    }
+}
+
+static void render(void)
+{
+   uint32_t *buf = frame_buf;
+   memset(buf, 0, sizeof(uint32_t) * 320 * 240); /* Black background */
+
+   draw_lines_to_buffer(buf);
 
    video_cb(buf, 320, 240, SCREEN_WIDTH << 2);
+}
+
+static void handle_record_state(bool record_button_held) {
+   int16_t* offset = recording_buffer + samples_recorded;
+   ssize_t frames_left = MAX(0, ARRAY_LENGTH(recording_buffer) - samples_recorded);
+   int samples_read = microphone_interface.get_microphone_input(microphone, offset, MIN(frames_left, SAMPLES_PER_FRAME));
+   if (samples_read < 0)
+   { // If there was a problem querying the mic...
+      log_cb(RETRO_LOG_DEBUG, "Entering ERROR state (error reading microphone)\n");
+      microphone_interface.set_microphone_state(microphone, false);
+      state = ERROR;
+   }
+   else
+   {
+      samples_recorded += samples_read;
+
+      if (!record_button_held || (samples_recorded >= ARRAY_LENGTH(recording_buffer)))
+      { // If the mic button was released, or if we've filled the recording buffer...
+
+         memset(playback_buffer, 0, sizeof(playback_buffer));
+         for (int i = 0; i < MIN(samples_recorded, ARRAY_LENGTH(recording_buffer)); ++i)
+         {
+            playback_buffer[i * 2] = recording_buffer[i];
+            playback_buffer[i * 2 + 1] = recording_buffer[i];
+         }
+         samples_played = 0;
+         microphone_interface.set_microphone_state(microphone, false);
+         // Shut off the mic, we won't use it during playback
+         log_cb(RETRO_LOG_DEBUG, "Entering PLAYBACK state (mic buffer is full or button was released)\n");
+         state = PLAYBACK;
+      }
+   }
+}
+
+void handle_playback_state() {
+   const int16_t* offset = playback_buffer + samples_played;
+   size_t frames_left = MIN(samples_recorded * 2, ARRAY_LENGTH(playback_buffer)) - samples_played;
+   frames_left = MIN(frames_left, SAMPLES_PER_FRAME * 2); // times 2 because we're converting mono input to stereo output
+   // Submitting too much audio will cause the main thread to block while it plays
+   size_t frames_written = audio_batch_cb(offset, frames_left);
+   samples_played += frames_written;
+
+   if (samples_played >= ARRAY_LENGTH(playback_buffer) || samples_played >= (samples_recorded * 2))
+   {
+      log_cb(RETRO_LOG_DEBUG, "Entering FINISHED_PLAYBACK state (finished playing audio data)\n");
+      state = FINISHED_PLAYBACK;
+   }
 }
 
 void retro_run(void)
@@ -258,52 +309,13 @@ void retro_run(void)
       case RECORDING:
          if (audio_batch_cb)
          {
-            int16_t* offset = recording_buffer + samples_recorded;
-            ssize_t frames_left = MAX(0, ARRAY_LENGTH(recording_buffer) - samples_recorded);
-            int samples_read = microphone_interface.get_microphone_input(microphone, offset, MIN(frames_left, SAMPLES_PER_FRAME));
-            if (samples_read < 0)
-            { // If there was a problem querying the mic...
-               log_cb(RETRO_LOG_DEBUG, "Entering ERROR state (error reading microphone)\n");
-               microphone_interface.set_microphone_state(microphone, false);
-               state = ERROR;
-            }
-            else
-            {
-               samples_recorded += samples_read;
-
-               if (!record_button || (samples_recorded >= ARRAY_LENGTH(recording_buffer)))
-               { // If the mic button was released, or if we've filled the recording buffer...
-
-                  memset(playback_buffer, 0, sizeof(playback_buffer));
-                  for (int i = 0; i < MIN(samples_recorded, ARRAY_LENGTH(recording_buffer)); ++i)
-                  {
-                     playback_buffer[i * 2] = recording_buffer[i];
-                     playback_buffer[i * 2 + 1] = recording_buffer[i];
-                  }
-                  samples_played = 0;
-                  microphone_interface.set_microphone_state(microphone, false);
-                  // Shut off the mic, we won't use it during playback
-                  log_cb(RETRO_LOG_DEBUG, "Entering PLAYBACK state (mic buffer is full or button was released)\n");
-                  state = PLAYBACK;
-               }
-            }
+            handle_record_state(record_button);
          }
          break;
       case PLAYBACK:
          if (audio_batch_cb)
          {
-            const int16_t* offset = playback_buffer + samples_played;
-            size_t frames_left = MIN(samples_recorded * 2, ARRAY_LENGTH(playback_buffer)) - samples_played;
-            frames_left = MIN(frames_left, SAMPLES_PER_FRAME * 2); // times 2 because we're converting mono input to stereo output
-            // Submitting too much audio will cause the main thread to block while it plays
-            size_t frames_written = audio_batch_cb(offset, frames_left);
-            samples_played += frames_written;
-
-            if (samples_played >= ARRAY_LENGTH(playback_buffer) || samples_played >= (samples_recorded * 2))
-            {
-               log_cb(RETRO_LOG_DEBUG, "Entering FINISHED_PLAYBACK state (finished playing audio data)\n");
-               state = FINISHED_PLAYBACK;
-            }
+            handle_playback_state();
          }
          break;
       case FINISHED_PLAYBACK:
