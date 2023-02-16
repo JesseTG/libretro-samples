@@ -142,7 +142,7 @@ void retro_set_environment(retro_environment_t cb) {
     struct retro_variable variables[] = {
             {
                     RECORDING_RATE_VAR,
-                    "Microphone rate; 48000|44100|32000|16000|8000",
+                    "Microphone rate (reset required); 48000|44100|32000|16000|8000",
             },
             { NULL, NULL },
     };
@@ -320,10 +320,6 @@ static void update_variables(void)
 
 void retro_run(void)
 {
-    bool updated = false;
-    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
-        update_variables();
-
    input_poll_cb();
 
    bool record_button = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
