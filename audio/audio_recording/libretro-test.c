@@ -85,9 +85,9 @@ void retro_init(void)
 
 void retro_deinit(void)
 {
-   if (microphone_interface.free_microphone)
+   if (microphone_interface.close_mic)
    {
-      microphone_interface.free_microphone(microphone);
+      microphone_interface.close_mic(microphone);
       microphone = NULL;
    }
 }
@@ -143,6 +143,7 @@ void retro_set_environment(retro_environment_t cb) {
           log_cb = fallback_log;
     }
 
+    microphone_interface.interface_version = RETRO_MICROPHONE_INTERFACE_VERSION;
     if (!cb(RETRO_ENVIRONMENT_GET_MICROPHONE_INTERFACE, &microphone_interface))
     {
        struct retro_message message;
@@ -186,8 +187,8 @@ void retro_reset(void)
    memset(recording_buffer, 0, sizeof(recording_buffer));
    memset(playback_buffer, 0, sizeof(playback_buffer));
 
-   if (microphone && microphone_interface.free_microphone)
-      microphone_interface.free_microphone(microphone);
+   if (microphone && microphone_interface.close_mic)
+      microphone_interface.close_mic(microphone);
 
    microphone = NULL;
 }
@@ -231,11 +232,11 @@ static void render(void)
 static void handle_record_state(bool record_button_held) {
    int16_t* offset = recording_buffer + samples_recorded;
    ssize_t frames_left = MAX(0, ARRAY_LENGTH(recording_buffer) - samples_recorded);
-   int samples_read = microphone_interface.get_microphone_input(microphone, offset, MIN(frames_left, SAMPLES_PER_FRAME));
+   int samples_read = microphone_interface.read_mic(microphone, offset, MIN(frames_left, SAMPLES_PER_FRAME));
    if (samples_read < 0)
    { // If there was a problem querying the mic...
       log_cb(RETRO_LOG_DEBUG, "Entering ERROR state (error reading microphone)\n");
-      microphone_interface.set_microphone_state(microphone, false);
+      microphone_interface.set_mic_state(microphone, false);
       state = ERROR;
    }
    else
@@ -252,7 +253,7 @@ static void handle_record_state(bool record_button_held) {
             playback_buffer[i * 2 + 1] = recording_buffer[i];
          }
          samples_played = 0;
-         microphone_interface.set_microphone_state(microphone, false);
+         microphone_interface.set_mic_state(microphone, false);
          // Shut off the mic, we won't use it during playback
          log_cb(RETRO_LOG_DEBUG, "Entering PLAYBACK state (mic buffer is full or button was released)\n");
          state = PLAYBACK;
@@ -283,13 +284,13 @@ void retro_run(void)
 
    switch (state) {
       case IDLE:
-         if (microphone && microphone_interface.set_microphone_state && record_button)
+         if (microphone && microphone_interface.set_mic_state && record_button)
          { // If we're not doing anything, and the microphone is valid, and the record button is pressed down...
             samples_recorded = 0;
             samples_played = 0;
             memset(recording_buffer, 0, sizeof(recording_buffer));
             memset(playback_buffer, 0, sizeof(playback_buffer));
-            if (microphone_interface.set_microphone_state(microphone, true))
+            if (microphone_interface.set_mic_state(microphone, true))
             { // If we successfully started the microphone...
                log_cb(RETRO_LOG_DEBUG, "Entering RECORDING state\n");
                state = RECORDING;
@@ -339,8 +340,10 @@ bool retro_load_game(const struct retro_game_info *info)
       return false;
    }
 
-   if (microphone_interface.init_microphone)
-      microphone = microphone_interface.init_microphone();
+   retro_microphone_params_t params;
+   params.rate = 48000;
+   if (microphone_interface.open_mic)
+      microphone = microphone_interface.open_mic(&params);
 
    if (microphone)
    {
