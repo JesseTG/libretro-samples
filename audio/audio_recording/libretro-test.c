@@ -6,6 +6,7 @@
 #include "libretro.h"
 
 #define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))
+#define SPEAKER_SAMPLE_RATE 44100
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
 #define SAMPLE_RATE 44100
@@ -58,7 +59,7 @@ static size_t samples_played;
 /**
  * The configured sample rate for the microphone.
  */
-static unsigned mic_rate = 44100;
+static unsigned mic_rate = SPEAKER_SAMPLE_RATE;
 
 static struct retro_log_callback logging = {NULL};
 static retro_log_printf_t log_cb;
@@ -124,7 +125,7 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 
    info->timing = (struct retro_system_timing) {
       .fps = FPS,
-      .sample_rate = SAMPLE_RATE,
+      .sample_rate = SPEAKER_SAMPLE_RATE,
    };
 
    info->geometry = (struct retro_game_geometry) {
