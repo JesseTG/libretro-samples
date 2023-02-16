@@ -431,13 +431,7 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
 // TODO: Implement
 size_t retro_serialize_size(void)
 {
-   return
-         sizeof(frame_buf) +
-         sizeof(recording_buffer) +
-         sizeof(playback_buffer) +
-         sizeof(state) +
-         sizeof(samples_recorded) +
-         sizeof(samples_played);
+   return 0;
 }
 
 // TODO: Implement
