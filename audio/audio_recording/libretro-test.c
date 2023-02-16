@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <string.h>
+#include <stdlib.h>
 #include "libretro.h"
 
 #define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))
@@ -12,6 +13,7 @@
 #define FPS 60
 #define SAMPLES_PER_FRAME (SAMPLE_RATE / FPS)
 #define MESSAGE_DISPLAY_LENGTH (5 * FPS)
+#define RECORDING_RATE_VAR "testrecording_mic_rate"
 
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) > (b) ? (b) : (a))
@@ -52,6 +54,11 @@ static size_t samples_recorded;
  * The number of audio frames that we've played back.
  */
 static size_t samples_played;
+
+/**
+ * The configured sample rate for the microphone.
+ */
+static unsigned mic_rate = 44100;
 
 static struct retro_log_callback logging = {NULL};
 static retro_log_printf_t log_cb;
@@ -131,6 +138,15 @@ void retro_get_system_av_info(struct retro_system_av_info *info)
 
 void retro_set_environment(retro_environment_t cb) {
     environ_cb = cb;
+
+    struct retro_variable variables[] = {
+            {
+                    RECORDING_RATE_VAR,
+                    "Microphone rate; 48000|44100|32000|16000|8000",
+            },
+            { NULL, NULL },
+    };
+    cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables);
 
     bool no_content = true;
     cb(RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME, &no_content);
@@ -276,8 +292,38 @@ void handle_playback_state() {
    }
 }
 
+static void update_variables(void)
+{
+    struct retro_variable var = {
+        .key = RECORDING_RATE_VAR,
+    };
+
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+    {
+        mic_rate = atoi(var.value);
+
+        log_cb(RETRO_LOG_DEBUG, "Set microphone rate: %uHz.\n", mic_rate);
+    }
+
+    if (microphone_interface.close_mic && microphone)
+    {
+        microphone_interface.close_mic(microphone);
+        microphone = NULL;
+    }
+
+    retro_microphone_params_t params;
+    params.rate = mic_rate;
+    if (microphone_interface.open_mic)
+        microphone = microphone_interface.open_mic(&params);
+}
+
+
 void retro_run(void)
 {
+    bool updated = false;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+        update_variables();
+
    input_poll_cb();
 
    bool record_button = input_state_cb(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START);
@@ -331,6 +377,8 @@ void retro_run(void)
 
 bool retro_load_game(const struct retro_game_info *info)
 {
+   update_variables();
+
    struct retro_message message;
    message.frames = MESSAGE_DISPLAY_LENGTH;
    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
@@ -339,11 +387,6 @@ bool retro_load_game(const struct retro_game_info *info)
       log_cb(RETRO_LOG_INFO, "XRGB8888 is not supported.\n");
       return false;
    }
-
-   retro_microphone_params_t params;
-   params.rate = 48000;
-   if (microphone_interface.open_mic)
-      microphone = microphone_interface.open_mic(&params);
 
    if (microphone)
    {
