@@ -107,8 +107,10 @@ LDFLAGS += $(LIBM)
 
 ifeq ($(DEBUG), 1)
    CFLAGS += -O0 -g
+   LDFLAGS += -O0 -g
 else
    CFLAGS += -O3
+   LDFLAGS += -O3
 endif
 
 OBJECTS := libretro-test.o
