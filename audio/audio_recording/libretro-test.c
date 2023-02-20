@@ -428,19 +428,16 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
    return retro_load_game(NULL);
 }
 
-// TODO: Implement
 size_t retro_serialize_size(void)
 {
    return 0;
 }
 
-// TODO: Implement
 bool retro_serialize(void *data_, size_t size)
 {
    return false;
 }
 
-// TODO: Implement
 bool retro_unserialize(const void *data_, size_t size)
 {
    return false;
