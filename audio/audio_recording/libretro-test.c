@@ -339,10 +339,10 @@ static void handle_record_state(bool record_button_held) {
 void handle_playback_state(void) {
    const int16_t* offset = playback_buffer + samples_played;
    size_t samples_left = MIN(frames_recorded * 2, playback_buffer_length) - samples_played;
-   size_t samples_to_play = MIN(samples_left, mic_samples_per_frame);
+   size_t frames_to_play = MIN(samples_left, mic_samples_per_frame);
    // Submitting too much audio will cause the main thread to block while it plays
-   size_t frames_written = audio_batch_cb(offset, samples_to_play);
-   samples_played += frames_written;
+   size_t frames_written = audio_batch_cb(offset, frames_to_play);
+   samples_played += frames_written * 2;
 
    if (samples_played >= playback_buffer_length || samples_played >= (frames_recorded * 2))
    {
