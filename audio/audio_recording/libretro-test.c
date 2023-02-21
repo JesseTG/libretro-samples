@@ -125,7 +125,15 @@ static void init(void)
       recording_buffer = calloc(recording_buffer_length, sizeof(*recording_buffer));
       playback_buffer_length = mic_rate * RECORDING_LENGTH * 2; // because we output stereo
       playback_buffer = calloc(playback_buffer_length, sizeof(*playback_buffer));
-      log_cb(RETRO_LOG_DEBUG, "Set microphone rate: %uHz.\n", mic_rate);
+      log_cb(RETRO_LOG_DEBUG, "mic_rate = %uHz\n", mic_rate);
+      log_cb(RETRO_LOG_DEBUG, "mic_samples_per_frame = %u samples\n", mic_samples_per_frame);
+      log_cb(RETRO_LOG_DEBUG, "recording_buffer_length = %u samples = %u bytes\n",
+         recording_buffer_length,
+         recording_buffer_length * sizeof(*recording_buffer));
+      log_cb(RETRO_LOG_DEBUG, "playback_buffer_length = %u audio frames = %u samples = %u bytes\n",
+         playback_buffer_length / 2,
+         playback_buffer_length,
+         playback_buffer_length * sizeof(*playback_buffer));
    }
 
    retro_microphone_params_t params;
